@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+	<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+		<title>你画我猜</title>
+		<style type="text/css">
+			* {margin: 0;padding: 0;box-sizing: border-box;}
+			html,body {font: 16px Helvetica, Arial;width: 100%;height: 100%;}			
+			#c1 {background-color: white;border: 1px solid #000;position: absolute;left: 0;right: 0;margin: 0 auto;}	
+			form {position: fixed;bottom: 0;width: 100%;border-top: 1px solid #ccc;}	
+			form input {border: 0;padding: 10px;width: 85%;outline: none;}			
+			form button {width: 15%;background: rgb(130, 224, 255);border: none;padding: 10px;outline: none;}			
+			#messagesbg {position: relative;margin: 0;padding: 0;height: 36%;overflow: hidden;padding-bottom: 35px;}
+			#messages{list-style-type: none;overflow-x: hidden;overflow-y: auto;top:0;width:100%;height: 100%;}			
+			#messages li {padding: 5px 10px;}			
+			#messages li:nth-child(odd) {background: #eee;}			
+			#redraw {position: absolute;right: 0;padding: 5px 10px;background: rgba(224, 37, 37, 1);color: #fff;cursor: pointer;margin: 1px;outline: none;border: 0}
+			#regbg {background: rgba(0, 0, 0, 0.7);width: 100%;height: 100%;position: absolute;z-index: 9;}			
+			#reg {background: #fff;width: 300px;height: 150px;position: absolute;top: 0;bottom: 0;left: 0;right: 0;margin: auto;text-align: center;border-radius: 10px;overflow: hidden;}			
+			#reg p:nth-of-type(1) {font-size: 24px;height: 50px;line-height: 50px;color: #666;}			
+			#reg p:nth-of-type(2) {height: 50px;line-height: 50px;}
+			#reg p:nth-of-type(2) input {height: 30px;margin-top: 10px;}			
+			#reg p:nth-of-type(3) {background: #ea0808;color: #fff;height: 50px;font-size: 16px;line-height: 50px;}			
+			#lineInfo {margin: 10px;}			
+			#lineInfo p {display: flex;align-items: center;justify-content: space-between;}			
+			#lineInfo p span {display: block;border-radius: 50%;}
+			#lineInfo p:nth-of-type(1) span {background-color: #000;width: 2px;height: 2px;}
+			#lineInfo p:nth-of-type(2) span {width: 10px;height: 10px;}
+			#mapname{text-align: center;height: 40px;line-height: 40px;}
+			#messages .welcome{text-align: center;background: rgba(95,141,228,0.2);padding: 5px 10px;width: 50%;margin: 10px auto;border-radius: 20px;}
+		</style>
+	</head>
+
+	<body>
+		<div id="regbg">
+			<div id="reg">
+				<p>请填写您的昵称</p>
+				<p><input type="text" id="userNick" /></p>
+				<p>确认</p>
+			</div>
+		</div>
+		<div style="position: relative;overflow: hidden;height: 400px;">
+			<button type="button" id="redraw">重画</button>
+			<canvas id="c1" width="373px" height="398px">
+	        	<span>该浏览器不支持canvas内容</span> 
+	    	</canvas>
+		</div>
+		<div id="mapname">
+			<p><a>请画出:</a><span>提示词</span></p>
+		</div>
+		<div id="lineInfo">
+			<p><a>大小:</a> <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></p>
+			<p><a>颜色:</a> <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></p>
+		</div>
+		<div id="messagesbg">
+			<ul id="messages"></ul>
+		</div> 
+		<form action="">
+			<input id="m" autocomplete="off" /><button id="sendbt">Send</button>
+		</form>
+	</body>
+
+</html>
+<script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+<script>
+	var keywords = ['口红','耳机','打火机','杯子','自行车','刀','小霸王','十里桃花','T恤','香蕉','雨伞','电脑','光头','手机','苹果','高跟鞋','黑色','猫','大米','人民币'];
+	//设置线型
+	var lineColors = ["#000","red","blue","yellow","green","orange","pink","purple"];
+	$("#lineInfo p").eq(0).children("span").each(function(index,item){
+		$("#lineInfo p").eq(0).children("span").eq(index).width(4+index*2);
+		$("#lineInfo p").eq(0).children("span").eq(index).height(4+index*2);
+	})
+	$("#lineInfo p").eq(1).children("span").each(function(index,item){
+		$("#lineInfo p").eq(1).children("span").eq(index).css("background-color",lineColors[index]);
+	})
+	//获取玩家信息及发送消息
+	var userNick = "";
+	var nowPlayer = {};
+	var rightAnswer = '';	
+	var socket = io();
+	var gameOver = false;	
+	//昵称加入游戏
+	enterGame();
+	//开始游戏
+	gameStart();
+
+	//游戏引擎
+	function gameStart(){
+		var allplayer = [];
+		//获取题目
+		socket.on('mapName', function(data) {
+			rightAnswer = data;
+		})
+		//监听状态,是否有玩家退出
+		socket.on('disconnect', (reason) => {
+			if(reason == 'transport close'){
+				gameOver = true;
+				palyOver(gameOver);
+				socket.emit("gameover",true);
+						
+			}	
+		});
+		//监听并显示消息
+		socket.on('chat message', function(msg) {		
+			$('#messages').append($('<li>').text(msg));
+			var answer = getplayMess(msg);
+			var bool = isRight(answer,rightAnswer);
+			if(bool){	
+				var nickstr = msg.split(":")[0];
+				$('#messages').append($('<p class="welcome">').text("玩家" + nickstr + "答对了!"));
+				overTurn(nowPlayer,nickstr);
+				getallUser().then(function(allplayer){	
+					editInfo(allplayer,nowPlayer);				
+				})	
+			}			
+		});
+		//发送消息
+		$('#sendbt').click(function() {
+			//获取题目
+			var messstr =  $('#m').val();
+			if(nowPlayer.isDrawer && messstr.replace(/\s*/g,"").includes(rightAnswer)){
+				messstr = "*************".slice(0,messstr.length);
+			};
+			socket.emit('chat message', socket.io.engine.userNick + ":" + messstr);
+			$('#m').val('');
+			return false;
+		});
+
+	}
+	
+	
+	//画图
+	var lineStrength ="6";
+	var lineColor = "#000";
+	var oC = document.getElementById('c1');　　
+	var oCG = oC.getContext('2d');
+	var w = oC.offsetWidth;
+	var h = oC.offsetHeight;
+	var drawing = false
+	var currPos = {
+		x:'',
+		y:''
+	}
+	oCG.fillStyle = "#FFFFFF";
+	
+	//选择大小和颜色
+	$("#lineInfo p").eq(0).children("span").each(function(index,el){
+		$("#lineInfo p").eq(0).children("span").eq(index).click(function(){
+			lineStrength = Number.parseInt($(this).css("width"));
+		})
+	})
+	$("#lineInfo p").eq(1).children("span").each(function(index,el){
+		$("#lineInfo p").eq(1).children("span").eq(index).click(function(){
+			lineColor = $(this).css("background-color");
+		})
+	})
+	
+	//输入昵称加入游戏
+	function enterGame(){
+		$("#reg p").eq(2).click(function() {
+			userNick = $("#userNick").val();
+			if(userNick != '') {
+				$("#regbg").css("display", "none");
+				socket.io.engine.userNick = userNick;
+				socket.emit('userNick', userNick);
+				//将加入的用户添加到alluser中
+				var obj = {};
+				obj.socId = socket.io.engine.id;
+				obj.userNick = userNick;
+				obj.isDrawer = false;
+				socket.emit("userinfo",obj);
+				socket.emit("alluser",obj);
+				$("#userNick").val('');	
+				
+				//当前玩家
+				nowPlayer = obj;
+				getallUser().then(function(value){
+					//console.log(value);
+					nowPlayer = isDrawPaly(nowPlayer,value);
+					editInfo(value,nowPlayer);
+					playGame(nowPlayer);
+				});
+
+			}
+			$("#sendbt").removeAttr("disabled");	
+			$("#redraw").removeAttr("disabled");
+			gameOver = false;
+		});
+		//监听昵称并显示欢迎信息
+		socket.on('userNick', function(msg) {
+			$('#messages').append($('<p class="welcome">').text("欢迎" + msg + "加入游戏!"));
+			if(msg != userNick){
+				socket.emit("mapName", rightAnswer);				
+			}
+			window.scrollTo(0, document.body.scrollHeight);
+		});
+	}
+
+	//监听所有玩家信息并分配身份
+	function getallUser(){	
+		var alluser = [];
+		return new Promise(function(resolve,reject){
+			socket.on('alluser', function(data) {
+				alluser = data;
+				resolve(alluser);
+			})
+		}) 
+	}
+
+	//分配玩家身份
+	function isDrawPaly(obj,arr){
+		if(obj.socId == arr[0].socId){
+			obj.isDrawer = true;
+		}
+		return obj;
+	}
+	//根据当前玩家身份绘图
+	function playGame(obj){
+		if(obj.isDrawer==true){//玩家绘图
+			//console.log('该你画图');
+			getmapName();
+			drawPlay();
+		}else{//系统复制绘图
+			getNotice();
+			redrawPlay();
+		}
+	}
+	
+	//画图玩家画图
+	function drawPlay(){
+		$("#redraw").removeAttr("disabled");
+		$("#redraw").click(function(){
+		  	oCG.clearRect(0,0,w,h);
+		  	socket.emit("isclearCanvas",true);
+		})　　
+		oC.onmousedown = function(e) {
+			socket.emit("isclearCanvas",false);
+			var e = e || window.event;
+			drawing = true;
+			currPos.x = e.clientX-oC.offsetLeft
+			currPos.y = e.clientY-oC.offsetTop	　　　　
+		};
+		oC.onmousemove = function(e) {
+			var e = e || window.event;			
+			if(!drawing)return;	
+			drawLine(currPos.x,currPos.y,e.clientX-oC.offsetLeft,e.clientY-oC.offsetTop,lineStrength,lineColor);
+			var drawCon = [currPos.x,currPos.y,e.clientX-oC.offsetLeft,e.clientY-oC.offsetTop,lineStrength,lineColor];
+			socket.emit("drawCon",drawCon);
+			currPos.x = e.clientX-oC.offsetLeft;
+			currPos.y = e.clientY-oC.offsetTop;
+		};
+		oC.onmouseup = function() {
+			drawing = false;
+			document.onmousemove = null;
+			document.onmouseup = null;	
+		};
+	}
+	
+	//猜图玩家看图
+	function redrawPlay(){
+		$("#redraw").attr("disabled","true");
+		$("#redraw").click(function(){
+			return ;
+		});
+		oC.onmousedown = null;
+		oC.onmousemove = null;
+		oC.onmouseup = null;
+		//监听画图内容
+		socket.on('drawCon', function(msg) {
+			drawLine(...msg);
+		});	
+		//判断画布是否要清空
+		socket.on('isclearCanvas', function(msg) {
+			if(msg==true){
+				oCG.clearRect(0,0,w,h);
+			}
+		});	
+	}
+	
+	//画图
+	function drawLine(x,y,s,e,size,color){
+		oCG.lineWidth = size;
+		oCG.strokeStyle = color;
+		oCG.beginPath();
+		oCG.moveTo(x, y);
+		oCG.lineTo(s, e);
+		oCG.closePath();
+		oCG.stroke();	
+	}
+	
+	//画图玩家--随机产生题目
+	function getmapName(){
+		//产生0-19的随机数
+		var randomNum = Math.round(Math.random()*(19));
+		$("#mapname p a").html("请画出:");
+		$("#mapname p span").html(keywords[randomNum]);
+		socket.emit("mapName",keywords[randomNum]);
+	}
+	
+	//猜图玩家--给出提示
+	function getNotice(){
+		$("#mapname p a").html("提示词:");
+		$("#mapname p span").html("没有提示,慢慢猜!");
+	}
+	
+	//获取玩家发送消息
+	function getplayMess(str){
+		var ss= str.split(":")[1];
+		return ss;
+	}
+	
+	//判断玩家发送消息是否有正确答案
+	function isRight(str,answer){
+		var isover = false;
+		if(str==answer){
+			//console.log("猜对了");
+			isover = true;
+			//overTurn(obj,isover);
+			//第一个猜图玩家猜对成为画图玩家
+		}else{
+			//console.log("画图玩家不得猜题");
+		}
+		return isover;
+	}
+
+	//猜图玩家答对结束本轮
+	function overTurn(obj,str){
+		if(obj.userNick== str){
+			obj.isDrawer = true;
+			//console.log(obj);
+		}else{
+			obj.isDrawer = false;
+		}
+		//轮换身份继续游戏
+		oCG.clearRect(0,0,w,h);
+		nowPlayer = obj;
+		playGame(nowPlayer);
+	}
+
+	//更换所有玩家被修改信息
+	function editInfo(data,nowPlayer){
+		var newAll = [];
+		for(var i in data){
+			if(data[i].socId == nowPlayer.socId){
+				data[i].isDrawer = nowPlayer.isDrawer;
+			}
+			newAll.push(data[i]);
+		}	
+		socket.emit("editalluser",newAll);			
+	}
+
+	//结束游戏
+	function palyOver(bool){
+		if(bool){
+			$('#messages').append($('<p class="welcome">').text("有玩家退出,游戏结束!"));
+			socket.emit('editalluser',[]);
+			$("#sendbt").attr("disabled","true");	
+			$("#redraw").attr("disabled","true");
+			$("#redraw").click(function(){
+				return ;
+			});
+			oC.onmousedown = null;
+			oC.onmousemove = null;
+			oC.onmouseup = null;
+			$("#mapname p a").html("该游戏");
+			$("#mapname p span").html("已结束!");
+		}
+	}
+</script>
