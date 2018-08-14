@@ -1,13 +1,5 @@
-# chat-example
+# a game of sockitio,draw and guess
 
-This is the source code for a very simple chat example used for
-the [Getting Started](http://socket.io/get-started/chat/) guide
-of the Socket.IO website.
+you can play it with your partners,but you all should enter the game at the same time,if there  someone exit the game,this turn will over,if you want continue play,you should enter the game once again with your partners!
 
-Please refer to it to learn how to run this application.
-
-You can also spin up a free Heroku dyno to test it out:
-
-[![Deploy](https://www.herokucdn.com/deploy/button.png)](https://heroku.com/deploy?template=https://github.com/socketio/chat-example)
-
-Besides, the application is deployed on [Now](https://zeit.co/now): https://socketio-chat-example.now.sh/
+> notice:the first one to enter the game is the drawer,others will be the guesser,the first to guess the right answer will be the next drawer,others keep guessing. 
